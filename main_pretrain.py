@@ -47,8 +47,12 @@ def get_args_parser():
     parser.add_argument('--model', default='mae_vit_large_patch16', type=str, metavar='MODEL',
                         help='Name of model to train')
 
-    parser.add_argument('--input_size', default=224, type=int,
-                        help='images input size')
+    parser.add_argument('--input_height', default=32, type=int,
+                        help='image height (e.g. 32 for 32x512)')
+    parser.add_argument('--input_width', default=512, type=int,
+                        help='image width (e.g. 512 for 32x512)')
+    parser.add_argument('--in_chans', default=1, type=int,
+                        help='number of input channels (1 for grayscale)')
 
     parser.add_argument('--mask_ratio', default=0.75, type=float,
                         help='Masking ratio (percentage of removed patches).')
@@ -119,12 +123,20 @@ def main(args):
 
     cudnn.benchmark = True
 
-    # simple augmentation
-    transform_train = transforms.Compose([
-            transforms.RandomResizedCrop(args.input_size, scale=(0.2, 1.0), interpolation=3),  # 3 is bicubic
+    # Transforms: resize to (height, width), grayscale if in_chans==1
+    transform_list = []
+    if args.in_chans == 1:
+        transform_list.append(transforms.Grayscale(num_output_channels=1))
+    transform_list.extend([
+            transforms.Resize((args.input_height, args.input_width), interpolation=3),  # 3 is bicubic
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+    ])
+    if args.in_chans == 1:
+        transform_list.append(transforms.Normalize(mean=[0.5], std=[0.5]))
+    else:
+        transform_list.append(transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    transform_train = transforms.Compose(transform_list)
     dataset_train = datasets.ImageFolder(os.path.join(args.data_path, 'train'), transform=transform_train)
     print(dataset_train)
 
@@ -152,8 +164,12 @@ def main(args):
         drop_last=True,
     )
     
-    # define the model
-    model = models_mae.__dict__[args.model](norm_pix_loss=args.norm_pix_loss)
+    # define the model (img_size as (H, W) for rectangular, in_chans for grayscale)
+    model = models_mae.__dict__[args.model](
+        img_size=(args.input_height, args.input_width),
+        in_chans=args.in_chans,
+        norm_pix_loss=args.norm_pix_loss
+    )
 
     model.to(device)
 
