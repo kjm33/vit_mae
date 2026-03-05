@@ -27,6 +27,14 @@ class MaskedAutoencoderViT(nn.Module):
                  decoder_embed_dim=512, decoder_depth=8, decoder_num_heads=16,
                  mlp_ratio=4., norm_layer=nn.LayerNorm, norm_pix_loss=False):
         super().__init__()
+        self.in_chans = in_chans
+        self.patch_size = patch_size if isinstance(patch_size, int) else patch_size[0]
+        # Grid size for rectangular images (H, W in patches)
+        if isinstance(img_size, (list, tuple)):
+            self._grid_size = (img_size[0] // self.patch_size, img_size[1] // self.patch_size)
+        else:
+            g = img_size // self.patch_size
+            self._grid_size = (g, g)
 
         # --------------------------------------------------------------------------
         # MAE encoder specifics
@@ -65,10 +73,11 @@ class MaskedAutoencoderViT(nn.Module):
     def initialize_weights(self):
         # initialization
         # initialize (and freeze) pos_embed by sin-cos embedding
-        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
+        grid_size = self._grid_size
+        pos_embed = get_2d_sincos_pos_embed(self.pos_embed.shape[-1], grid_size, cls_token=True)
         self.pos_embed.data.copy_(torch.from_numpy(pos_embed).float().unsqueeze(0))
 
-        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], int(self.patch_embed.num_patches**.5), cls_token=True)
+        decoder_pos_embed = get_2d_sincos_pos_embed(self.decoder_pos_embed.shape[-1], grid_size, cls_token=True)
         self.decoder_pos_embed.data.copy_(torch.from_numpy(decoder_pos_embed).float().unsqueeze(0))
 
         # initialize patch_embed like nn.Linear (instead of nn.Conv2d)
@@ -94,30 +103,33 @@ class MaskedAutoencoderViT(nn.Module):
 
     def patchify(self, imgs):
         """
-        imgs: (N, 3, H, W)
-        x: (N, L, patch_size**2 *3)
+        imgs: (N, C, H, W)
+        x: (N, L, patch_size**2 * C)
         """
         p = self.patch_embed.patch_size[0]
-        assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
+        c = self.in_chans
+        assert imgs.shape[2] % p == 0 and imgs.shape[3] % p == 0
 
-        h = w = imgs.shape[2] // p
-        x = imgs.reshape(shape=(imgs.shape[0], 3, h, p, w, p))
+        h = imgs.shape[2] // p
+        w = imgs.shape[3] // p
+        x = imgs.reshape(shape=(imgs.shape[0], c, h, p, w, p))
         x = torch.einsum('nchpwq->nhwpqc', x)
-        x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * 3))
+        x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * c))
         return x
 
     def unpatchify(self, x):
         """
-        x: (N, L, patch_size**2 *3)
-        imgs: (N, 3, H, W)
+        x: (N, L, patch_size**2 * C)
+        imgs: (N, C, H, W)
         """
         p = self.patch_embed.patch_size[0]
-        h = w = int(x.shape[1]**.5)
+        c = self.in_chans
+        h, w = self._grid_size
         assert h * w == x.shape[1]
-        
-        x = x.reshape(shape=(x.shape[0], h, w, p, p, 3))
+
+        x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
         x = torch.einsum('nhwpqc->nchpwq', x)
-        imgs = x.reshape(shape=(x.shape[0], 3, h * p, h * p))
+        imgs = x.reshape(shape=(x.shape[0], c, h * p, w * p))
         return imgs
 
     def random_masking(self, x, mask_ratio):
@@ -197,8 +209,8 @@ class MaskedAutoencoderViT(nn.Module):
 
     def forward_loss(self, imgs, pred, mask):
         """
-        imgs: [N, 3, H, W]
-        pred: [N, L, p*p*3]
+        imgs: [N, C, H, W]
+        pred: [N, L, p*p*C]
         mask: [N, L], 0 is keep, 1 is remove, 
         """
         target = self.patchify(imgs)
@@ -215,7 +227,7 @@ class MaskedAutoencoderViT(nn.Module):
 
     def forward(self, imgs, mask_ratio=0.75):
         latent, mask, ids_restore = self.forward_encoder(imgs, mask_ratio)
-        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*3]
+        pred = self.forward_decoder(latent, ids_restore)  # [N, L, p*p*C]
         loss = self.forward_loss(imgs, pred, mask)
         return loss, pred, mask
 
