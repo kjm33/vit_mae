@@ -11,8 +11,21 @@ class YiddishMAEPretrainDataset(Dataset):
         image_folder: ścieżka do folderu ze skanami linii
         img_size: docelowy rozmiar (H, W)
         """
-        self.image_paths = [os.path.join(image_folder, f) for f in os.listdir(image_folder) 
-                           if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))]
+        if not os.path.isdir(image_folder):
+            raise FileNotFoundError(
+                f"Image folder not found: {os.path.abspath(image_folder)}. "
+                "Create the folder and add .png/.jpg/.jpeg/.tiff images, or fix the path."
+            )
+        self.image_paths = [
+            os.path.join(image_folder, f)
+            for f in os.listdir(image_folder)
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+        ]
+        if len(self.image_paths) == 0:
+            raise ValueError(
+                f"No images found in {os.path.abspath(image_folder)}. "
+                "Add .png, .jpg, .jpeg or .tiff files to the folder."
+            )
         self.h, self.w = img_size
 
     def __len__(self):
