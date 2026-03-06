@@ -343,7 +343,27 @@ def mae_vit_huge_patch14_dec512d8b(**kwargs):
     return model
 
 
+def mae_vit_base_patch8_32x512_dec512d8b(**kwargs):
+    """MAE for text/grayscale: img 32x512, patch 8, 1 channel, ViT-Base; decoder 512-dim, 8 blocks. norm_pix_loss=True."""
+    model = MaskedAutoencoderViT(
+        img_size=(32, 512),
+        patch_size=8,
+        in_chans=1,
+        embed_dim=768,
+        depth=12,
+        num_heads=12,
+        decoder_embed_dim=512,
+        decoder_depth=8,
+        decoder_num_heads=16,
+        mlp_ratio=4,
+        norm_layer=partial(nn.LayerNorm, eps=1e-6),
+        norm_pix_loss=True,
+        **kwargs)
+    return model
+
+
 # Recommended aliases (same configs, shorter names)
 mae_vit_base_patch16 = mae_vit_base_patch16_dec512d8b
 mae_vit_large_patch16 = mae_vit_large_patch16_dec512d8b
 mae_vit_huge_patch14 = mae_vit_huge_patch14_dec512d8b
+mae_vit_base_patch8_32x512 = mae_vit_base_patch8_32x512_dec512d8b
