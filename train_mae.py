@@ -1,8 +1,50 @@
+import os
+import cv2
 import torch
-from accelerate import Accelerator
 from torch.utils.data import DataLoader
-from models_mae import MaskedAutoencoderViT # Import z Twojego pliku
-from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset # Wcześniej przygotowany dataloader
+from torch.utils.tensorboard import SummaryWriter
+from accelerate import Accelerator
+from models_mae import MaskedAutoencoderViT
+from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
+
+# Fixed image to log reconstruction progress every 10 epochs (TensorBoard).
+# Override with env MAE_MONITOR_IMAGE (e.g. on Linux use a path under /home/...).
+MONITOR_IMAGE_PATH = os.environ.get(
+    "MAE_MONITOR_IMAGE",
+    r"../books/funem_yarid/polona/polona/funem_yarid/bukh_2/lines/BN_523.715_0013.tsv.processed_LINE_5.TIF",
+)
+IMG_SIZE = (32, 512)
+LOG_DIR = "runs/mae_yiddish"
+
+
+def load_monitor_image(path, img_size, device):
+    """Load one image for TensorBoard reconstruction logging; resize to img_size (H, W)."""
+    if not os.path.isfile(path):
+        return None
+    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        return None
+    h, w = img_size
+    img = cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+    x = torch.from_numpy(img).float().div(255.0).unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
+    return x.to(device)
+
+
+def log_reconstruction(writer, model, monitor_img, epoch, mask_ratio=0.75):
+    """Run model on monitor image and log original + reconstructed image to TensorBoard."""
+    m = model.module if hasattr(model, "module") else model
+    model.eval()
+    with torch.no_grad():
+        _, pred, _ = model(monitor_img, mask_ratio=mask_ratio)
+        recon = m.unpatchify(pred)  # (1, 1, H, W)
+    model.train()
+    # Preds may be in normalized space when norm_pix_loss=True; scale to [0,1] for display
+    r = recon[0].cpu().float()
+    r = (r - r.min()) / (r.max() - r.min() + 1e-8)
+    orig = monitor_img[0].cpu().float()
+    writer.add_image("monitor/original", orig, epoch, dataformats="CHW")
+    writer.add_image("monitor/reconstructed", r, epoch, dataformats="CHW")
+
 
 def train():
     # 1. Inicjalizacja Accelerate z wymuszeniem mixed_precision="bf16"
@@ -14,7 +56,7 @@ def train():
         img_size=(32, 512),
         patch_size=8,          # Zmienione z 16 na 8 dla detali jidysz
         in_chans=1,            # Twoje zdjęcia BW
-        embed_dim=768,         # Parametry dla Base
+        embed_dim=768,         # Parametry dla Basels ./da  
         depth=12,              #
         num_heads=12,          #
         decoder_embed_dim=512, #
@@ -33,23 +75,41 @@ def train():
     # 5. Przygotowanie wszystkiego przez accelerator
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
 
+    writer = None
+    monitor_img = None
+    if accelerator.is_main_process:
+        writer = SummaryWriter(log_dir=LOG_DIR)
+        monitor_img = load_monitor_image(MONITOR_IMAGE_PATH, IMG_SIZE, accelerator.device)
+        if monitor_img is None:
+            accelerator.print(f"Monitor image not found: {MONITOR_IMAGE_PATH}")
+        else:
+            accelerator.print(f"TensorBoard: logging reconstruction every 10 epochs for {MONITOR_IMAGE_PATH}")
+
     model.train()
+    global_step = 0
     for epoch in range(200):
         for step, batch in enumerate(dataloader):
-            # Model MAE przyjmuje obrazy i zwraca (loss, pred, mask)
-            # Domyślny mask_ratio to 0.75
             loss, _, _ = model(batch, mask_ratio=0.75)
             
             optimizer.zero_grad()
             accelerator.backward(loss)
             optimizer.step()
 
+            if accelerator.is_main_process:
+                writer.add_scalar("train/loss", loss.item(), global_step)
+
             if step % 10 == 0 and accelerator.is_main_process:
                 print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
-        # Zapisywanie modelu co epokę (tylko na głównym procesie)
+            global_step += 1
+
         if accelerator.is_main_process:
             accelerator.save_state("mae_checkpoint_yiddish")
+            if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
+                log_reconstruction(writer, model, monitor_img, epoch)
+
+    if accelerator.is_main_process and writer is not None:
+        writer.close()
 
 if __name__ == "__main__":
     train()
