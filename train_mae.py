@@ -99,7 +99,7 @@ def train():
     global_step = 0
     num_processes = accelerator.num_processes
 
-    for epoch in range(200):
+    for epoch in range(20):
 
         for step, batch in enumerate(dataloader):
 
