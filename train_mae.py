@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from accelerate import Accelerator
 from models_mae import MaskedAutoencoderViT
-from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
+from yiddish_mare_pretrain_ds_gpu import YiddishMAEPretrainDatasetGPU
 
 # Fixed image to log reconstruction progress every 10 epochs (TensorBoard).
 # Override with env MAE_MONITOR_IMAGE (e.g. on Linux use a path under /home/...).
@@ -66,7 +66,7 @@ def train():
     )
 
     # 3. Przygotowanie danych
-    dataset = YiddishMAEPretrainDataset("./data/yiddish_lines", img_size=(32, 512))
+    dataset = YiddishMAEPretrainDatasetGPU("./data/yiddish_lines", img_size=(32, 512))
     # Przy 2x RTX 3090 możesz ustawić duży batch (np. 128 na kartę = 256 łącznie)
     dataloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8)
 
