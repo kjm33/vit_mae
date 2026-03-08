@@ -64,4 +64,5 @@ To achieve the current performance metrics, the following optimizations were imp
 * [ ] **TF32 Activation:** Setting `torch.set_float32_matmul_precision('high')` to further accelerate `float32` operations if they occur.
 * [ ] **FlashAttention:** Investigating `torch.nn.functional.scaled_dot_product_attention` for more memory-efficient attention mechanisms.
 
----
+
+torch.compile reduced epoch pass time by ~1s to 7.5s per epoch

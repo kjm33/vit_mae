@@ -79,6 +79,7 @@ def train():
         decoder_depth=8,       #
         norm_pix_loss=True     # Krytyczne dla stabilności w OCR
     )
+    model = torch.compile(model)
 
     # 3. Przygotowanie danych
     lines_dir = "./data/yiddish_lines"
