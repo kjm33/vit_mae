@@ -111,7 +111,7 @@ def train():
             global_step += 1
 
 
-        if accelerator.is_main_process:
+        if accelerator.is_main_process and False:
             accelerator.save_state("mae_checkpoint_yiddish")
             if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
                 log_reconstruction(writer, model, monitor_img, epoch)
