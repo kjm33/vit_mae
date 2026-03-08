@@ -8,14 +8,28 @@ from accelerate import Accelerator
 from models_mae import MaskedAutoencoderViT
 from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
 
-# Fixed image to log reconstruction progress every 10 epochs (TensorBoard).
-# Override with env MAE_MONITOR_IMAGE (e.g. on Linux use a path under /home/...).
-MONITOR_IMAGE_PATH = os.environ.get(
-    "MAE_MONITOR_IMAGE",
-    r"../books/funem_yarid/polona/polona/funem_yarid/bukh_2/lines/BN_523.715_0013.tsv.processed_LINE_5.TIF",
-)
 IMG_SIZE = (32, 512)
 LOG_DIR = "runs/mae_yiddish"
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".tiff", ".tif")
+# Prefer this file for TensorBoard reconstruction when present in lines_dir
+PREFERRED_MONITOR_IMAGE = "BN_523.715_0013.tsv.processed_LINE_5.TIF"
+
+
+def find_monitor_image(lines_dir):
+    """Return path to monitor image: preferred file if present, else first image in lines_dir."""
+    if not os.path.isdir(lines_dir):
+        return None
+    preferred_path = os.path.join(lines_dir, PREFERRED_MONITOR_IMAGE)
+    if os.path.isfile(preferred_path):
+        return preferred_path
+    names = [
+        f for f in os.listdir(lines_dir)
+        if f.lower().endswith(IMAGE_EXTENSIONS)
+    ]
+    if not names:
+        return None
+    names.sort()
+    return os.path.join(lines_dir, names[0])
 
 
 def load_monitor_image(path, img_size, device):
@@ -66,7 +80,8 @@ def train():
     )
 
     # 3. Przygotowanie danych
-    dataset = YiddishMAEPretrainDataset("./data/yiddish_lines", img_size=(32, 512))
+    lines_dir = "./data/yiddish_lines"
+    dataset = YiddishMAEPretrainDataset(lines_dir, img_size=(32, 512))
     # Przy 2x RTX 3090 możesz ustawić duży batch (np. 128 na kartę = 256 łącznie)
     dataloader = DataLoader(dataset,
         batch_size=256,
@@ -89,11 +104,12 @@ def train():
         writer = SummaryWriter(log_dir=LOG_DIR)
         writer.add_scalar("config/num_gpus", accelerator.num_processes, 0)
         accelerator.print(f"Multi-GPU: {accelerator.num_processes} process(es). TensorBoard metrics: throughput (samples/s), step_time_ms, gpu/memory_*, epoch/time_sec.")
-        monitor_img = load_monitor_image(MONITOR_IMAGE_PATH, IMG_SIZE, accelerator.device)
+        monitor_path = find_monitor_image(lines_dir)
+        monitor_img = load_monitor_image(monitor_path, IMG_SIZE, accelerator.device) if monitor_path else None
         if monitor_img is None:
-            accelerator.print(f"Monitor image not found: {MONITOR_IMAGE_PATH}")
+            accelerator.print(f"Monitor image not found in {os.path.abspath(lines_dir)}")
         else:
-            accelerator.print(f"TensorBoard: logging reconstruction every 10 epochs for {MONITOR_IMAGE_PATH}")
+            accelerator.print(f"TensorBoard: logging reconstruction every 10 epochs for {monitor_path}")
 
     model.train()
     global_step = 0
