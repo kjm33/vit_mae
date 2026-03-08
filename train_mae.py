@@ -100,6 +100,8 @@ def train():
     num_processes = accelerator.num_processes
 
     for epoch in range(20):
+        if accelerator.is_main_process:
+            epoch_start = time.perf_counter()
 
         for step, batch in enumerate(dataloader):
 
@@ -117,6 +119,10 @@ def train():
 
             global_step += 1
 
+        if accelerator.is_main_process:
+            epoch_time_sec = time.perf_counter() - epoch_start
+            writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
+            accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
 
         if accelerator.is_main_process and False:
             accelerator.save_state("mae_checkpoint_yiddish")
