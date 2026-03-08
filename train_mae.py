@@ -68,7 +68,7 @@ def train():
     # 3. Przygotowanie danych
     dataset = YiddishMAEPretrainDatasetGPU("./data/yiddish_lines", img_size=(32, 512))
     # Przy 2x RTX 3090 możesz ustawić duży batch (np. 128 na kartę = 256 łącznie)
-    dataloader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8)
+    dataloader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=12)
 
     # 4. Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=1.5e-4, weight_decay=0.05)
