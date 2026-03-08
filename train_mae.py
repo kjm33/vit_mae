@@ -4,6 +4,7 @@ import cv2
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
+import torch.profiler
 from accelerate import Accelerator
 from models_mae import MaskedAutoencoderViT
 from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
@@ -115,35 +116,51 @@ def train():
     global_step = 0
     num_processes = accelerator.num_processes
 
-    for epoch in range(20):
-        if accelerator.is_main_process:
-            epoch_start = time.perf_counter()
+    with torch.profiler.profile(
+        activities=[
+            torch.profiler.ProfilerActivity.CPU,
+            torch.profiler.ProfilerActivity.CUDA,
+        ],
+        # wait: pomin pierwsze 2 kroki (rozgrzewka systemu)
+        # warmup: pomin 2 kolejne (rozgrzewka bibliotek CUDA)
+        # active: nagraj 3 kolejne kroki (to bedzie nasza probka)
+        schedule=torch.profiler.schedule(wait=2, warmup=2, active=3, repeat=1),
+        on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
+        record_shapes=True,
+        with_stack=True # Pozwala zobaczyc, ktora linia kodu w Pythonie wywolala operacje
+    ) as prof:
 
-        for step, batch in enumerate(dataloader):
+        for epoch in range(20):
+            
+            if accelerator.is_main_process:
+                epoch_start = time.perf_counter()
 
-            loss, _, _ = model(batch, mask_ratio=0.75)
-            optimizer.zero_grad()
-            accelerator.backward(loss)
-            optimizer.step()
+            for step, batch in enumerate(dataloader):
+
+                loss, _, _ = model(batch, mask_ratio=0.75)
+                optimizer.zero_grad()
+                accelerator.backward(loss)
+                optimizer.step()
+                prof.step()
+
+                if accelerator.is_main_process:
+                    writer.add_scalar("train/loss", loss.item(), global_step)
+
+
+                if step % 10 == 0 and accelerator.is_main_process:
+                    print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+
+                global_step += 1
 
             if accelerator.is_main_process:
-                writer.add_scalar("train/loss", loss.item(), global_step)
+                epoch_time_sec = time.perf_counter() - epoch_start
+                writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
+                accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
 
-
-            if step % 10 == 0 and accelerator.is_main_process:
-                print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
-
-            global_step += 1
-
-        if accelerator.is_main_process:
-            epoch_time_sec = time.perf_counter() - epoch_start
-            writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
-            accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
-
-        if accelerator.is_main_process and False:
-            accelerator.save_state("mae_checkpoint_yiddish")
-            if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
-                log_reconstruction(writer, model, monitor_img, epoch)
+            if accelerator.is_main_process and False:
+                accelerator.save_state("mae_checkpoint_yiddish")
+                if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
+                    log_reconstruction(writer, model, monitor_img, epoch)
 
     if accelerator.is_main_process and writer is not None:
         writer.close()
