@@ -93,62 +93,23 @@ def train():
     num_processes = accelerator.num_processes
 
     for epoch in range(200):
-        epoch_start = time.perf_counter()
-        steps_this_epoch = 0
-        samples_per_sec = 0.0
-        samples_per_sec_per_gpu = 0.0
 
         for step, batch in enumerate(dataloader):
-            # Synchronize so step time reflects slowest GPU (multi-GPU efficiency)
-            accelerator.wait_for_everyone()
-            if accelerator.device.type == "cuda":
-                torch.cuda.synchronize()
-            step_start = time.perf_counter() if accelerator.is_main_process else None
 
             loss, _, _ = model(batch, mask_ratio=0.75)
             optimizer.zero_grad()
             accelerator.backward(loss)
             optimizer.step()
 
-            if accelerator.device.type == "cuda":
-                torch.cuda.synchronize()
-            accelerator.wait_for_everyone()
-
             if accelerator.is_main_process:
-                step_time_sec = time.perf_counter() - step_start
-                global_batch_size = batch.shape[0] * num_processes
-                samples_per_sec = global_batch_size / step_time_sec
-                samples_per_sec_per_gpu = samples_per_sec / num_processes
-
                 writer.add_scalar("train/loss", loss.item(), global_step)
-                writer.add_scalar("throughput/samples_per_sec", samples_per_sec, global_step)
-                writer.add_scalar("throughput/samples_per_sec_per_gpu", samples_per_sec_per_gpu, global_step)
-                writer.add_scalar("throughput/step_time_ms", step_time_sec * 1000, global_step)
-                if torch.cuda.is_available():
-                    writer.add_scalar("gpu/memory_allocated_gb", torch.cuda.memory_allocated() / 1e9, global_step)
-                    writer.add_scalar("gpu/memory_reserved_gb", torch.cuda.memory_reserved() / 1e9, global_step)
+
 
             if step % 10 == 0 and accelerator.is_main_process:
-                print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f} | {samples_per_sec:.0f} samples/s | step {step_time_sec*1000:.0f} ms")
+                print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
             global_step += 1
-            steps_this_epoch += 1
 
-        epoch_time_sec = time.perf_counter() - epoch_start
-        if accelerator.is_main_process:
-            writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
-            writer.add_scalar("epoch/steps", steps_this_epoch, epoch)
-            steps_per_sec = steps_this_epoch / epoch_time_sec if epoch_time_sec > 0 else 0
-            writer.add_scalar("epoch/steps_per_sec", steps_per_sec, epoch)
-            if torch.cuda.is_available():
-                writer.add_scalar("gpu/max_memory_allocated_gb", torch.cuda.max_memory_allocated() / 1e9, epoch)
-            accelerator.print(
-                f"Epoch {epoch} done in {epoch_time_sec:.1f}s | "
-                f"{num_processes} GPU(s) | {samples_per_sec:.0f} samples/s total | "
-                f"{samples_per_sec_per_gpu:.0f} samples/s/GPU"
-            )
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
 
         if accelerator.is_main_process:
             accelerator.save_state("mae_checkpoint_yiddish")
