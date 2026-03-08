@@ -19,7 +19,7 @@ class YiddishMAEPretrainDataset(Dataset):
         self.image_paths = [
             os.path.join(image_folder, f)
             for f in os.listdir(image_folder)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff'))
+            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif'))
         ]
         if len(self.image_paths) == 0:
             raise ValueError(
