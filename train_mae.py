@@ -134,8 +134,8 @@ def train():
 
         for epoch in range(20):
             
-            if accelerator.is_main_process:
-                epoch_start = time.perf_counter()
+            # if accelerator.is_main_process:
+            #     epoch_start = time.perf_counter()
 
             for step, batch in enumerate(dataloader):
 
@@ -145,24 +145,24 @@ def train():
                 optimizer.step()
                 # prof.step()
 
-                if accelerator.is_main_process:
-                    writer.add_scalar("train/loss", loss.item(), global_step)
+            #     if accelerator.is_main_process:
+            #         writer.add_scalar("train/loss", loss.item(), global_step)
 
 
-                if step % 10 == 0 and accelerator.is_main_process:
-                    print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
+            #     if step % 10 == 0 and accelerator.is_main_process:
+            #         print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
 
-                global_step += 1
+            #     global_step += 1
 
-            if accelerator.is_main_process:
-                epoch_time_sec = time.perf_counter() - epoch_start
-                writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
-                accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
+            # if accelerator.is_main_process:
+            #     epoch_time_sec = time.perf_counter() - epoch_start
+            #     writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
+            #     accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
 
-            if accelerator.is_main_process and False:
-                accelerator.save_state("mae_checkpoint_yiddish")
-                if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
-                    log_reconstruction(writer, model, monitor_img, epoch)
+            # if accelerator.is_main_process and False:
+            #     accelerator.save_state("mae_checkpoint_yiddish")
+            #     if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
+            #         log_reconstruction(writer, model, monitor_img, epoch)
 
     if accelerator.is_main_process and writer is not None:
         writer.close()
