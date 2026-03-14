@@ -4,7 +4,7 @@ import cv2
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-import torch.profiler
+# import torch.profiler
 from accelerate import Accelerator
 from models_mae import MaskedAutoencoderViT
 from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
@@ -117,19 +117,20 @@ def train():
     global_step = 0
     num_processes = accelerator.num_processes
 
-    with torch.profiler.profile(
-        activities=[
-            torch.profiler.ProfilerActivity.CPU,
-            torch.profiler.ProfilerActivity.CUDA,
-        ],
-        # wait: pomin pierwsze 2 kroki (rozgrzewka systemu)
-        # warmup: pomin 2 kolejne (rozgrzewka bibliotek CUDA)
-        # active: nagraj 3 kolejne kroki (to bedzie nasza probka)
-        schedule=torch.profiler.schedule(wait=2, warmup=2, active=3, repeat=1),
-        on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
-        record_shapes=True,
-        with_stack=True # Pozwala zobaczyc, ktora linia kodu w Pythonie wywolala operacje
-    ) as prof:
+    # with torch.profiler.profile(
+    #     activities=[
+    #         torch.profiler.ProfilerActivity.CPU,
+    #         torch.profiler.ProfilerActivity.CUDA,
+    #     ],
+    #     # wait: pomin pierwsze 2 kroki (rozgrzewka systemu)
+    #     # warmup: pomin 2 kolejne (rozgrzewka bibliotek CUDA)
+    #     # active: nagraj 3 kolejne kroki (to bedzie nasza probka)
+    #     schedule=torch.profiler.schedule(wait=2, warmup=2, active=3, repeat=1),
+    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
+    #     record_shapes=True,
+    #     with_stack=True # Pozwala zobaczyc, ktora linia kodu w Pythonie wywolala operacje
+    # ) as prof:
+    if True:
 
         for epoch in range(20):
             
@@ -142,7 +143,7 @@ def train():
                 optimizer.zero_grad()
                 accelerator.backward(loss)
                 optimizer.step()
-                prof.step()
+                # prof.step()
 
                 if accelerator.is_main_process:
                     writer.add_scalar("train/loss", loss.item(), global_step)
