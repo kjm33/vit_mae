@@ -27,25 +27,45 @@ from util.pos_embed import get_2d_sincos_pos_embed
 import torch.nn.functional as F
 
 class FlashAttention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+    def __init__(
+            self,
+            dim,
+            num_heads=8,
+            qkv_bias=False,
+            qk_norm=False,      # Dodane, aby obsłużyć timm
+            attn_drop=0.,
+            proj_drop=0.,
+            norm_layer=nn.LayerNorm, # Dodane, aby obsłużyć timm
+            **kwargs            # Łapie wszystkie inne argumenty (jak qk_norm)
+    ):
         super().__init__()
+        assert dim % num_heads == 0, 'dim should be divisible by num_heads'
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         self.scale = self.head_dim ** -0.5
+
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+        
+        # Opcjonalnie: obsługa qk_norm, jeśli timm tego wymaga
+        self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
 
     def forward(self, x):
         B, N, C = x.shape
-        # qkv shape: [B, N, 3, num_heads, head_dim]
+        # qkv shape: [3, B, num_heads, N, head_dim]
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Flash Attention - to eliminuje skok VRAM
+        # Jeśli qk_norm jest używane (timm >= 0.9.x)
+        q = self.q_norm(q)
+        k = self.k_norm(k)
+
+        # Flash Attention
         x = F.scaled_dot_product_attention(
-            q, k, v, 
+            q, k, v,
             dropout_p=self.attn_drop.p if self.training else 0.,
             is_causal=False
         )
