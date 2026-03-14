@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 # import torch.profiler
 from accelerate import Accelerator
 from models_mae import MaskedAutoencoderViT
-from yiddish_mare_pretrain_ds import YiddishMAEPretrainDataset
+from yiddish_mare_pretrain_ds import YiddishSharedInRamDataset
 
 IMG_SIZE = (32, 512)
 LOG_DIR = "runs/mae_yiddish"
@@ -83,7 +83,7 @@ def train():
 
     # 3. Przygotowanie danych
     lines_dir = "./data/yiddish_lines"
-    dataset = YiddishMAEPretrainDataset(lines_dir, img_size=(32, 512))
+    dataset = YiddishSharedInRamDataset(lines_dir, img_size=(32, 512))
     # Przy 2x RTX 3090 możesz ustawić duży batch (np. 128 na kartę = 256 łącznie)
     dataloader = DataLoader(dataset,
         batch_size=256,
