@@ -1,65 +1,45 @@
 import os
-import cv2
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from PIL import Image
+from tqdm import tqdm
 
-class YiddishMAEPretrainDataset(Dataset):
-    def __init__(self, image_folder, img_size=(32, 512)):
-        """
-        image_folder: ścieżka do folderu ze skanami linii
-        img_size: docelowy rozmiar (H, W)
-        """
-        if not os.path.isdir(image_folder):
-            raise FileNotFoundError(
-                f"Image folder not found: {os.path.abspath(image_folder)}. "
-                "Create the folder and add .png/.jpg/.jpeg/.tiff images, or fix the path."
-            )
-        self.image_paths = [
-            os.path.join(image_folder, f)
-            for f in os.listdir(image_folder)
-            if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tiff', '.tif'))
-        ]
-        if len(self.image_paths) == 0:
-            raise ValueError(
-                f"No images found in {os.path.abspath(image_folder)}. "
-                "Add .png, .jpg, .jpeg or .tiff files to the folder."
-            )
-        self.h, self.w = img_size
+class YiddishSharedInRamDataset(Dataset):
+    def __init__(self, root_dir, img_size=(32, 512)):
+        self.root_dir = root_dir
+        self.img_size = img_size # (H, W) -> (32, 512)
+        
+        # Pobieramy listę plików
+        self.file_names = [f for f in os.listdir(root_dir) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        
+        print(f"Ładowanie {len(self.file_names)} obrazów do RAM...")
+        
+        # Pre-alokacja tensora w RAM (Batch, H, W) - oszczędza czas stackowania
+        self.data = torch.empty((len(self.file_names), img_size[0], img_size[1]), dtype=torch.uint8)
+        
+        for idx, name in enumerate(tqdm(self.file_names)):
+            img_path = os.path.join(self.root_dir, name)
+            
+            # Otwieramy, konwertujemy na skalę szarości i zmieniamy rozmiar
+            with Image.open(img_path) as img:
+                img = img.convert('L').resize((self.img_size[1], self.img_size[0]), resample=Image.BILINEAR)
+                # PIL resize bierze (W, H), stąd zamiana kolejności powyżej
+                
+                # Zapisujemy jako uint8 (0-255)
+                self.data[idx] = torch.from_numpy(np.array(img, dtype=np.uint8))
+        
+        # KLUCZOWE: Przenosimy do Shared Memory dla multiprocessing
+        self.data = self.data.share_memory_()
+        print("Dataset gotowy w pamięci współdzielonej.")
 
     def __len__(self):
-        return len(self.image_paths)
-
-    def prepare_image(self, path):
-        # 1. Wczytanie w skali szarości
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-        if img is None: return None
-
-        # # 2. Resizing z zachowaniem proporcji (Aspect Ratio)
-        # h_orig, w_orig = img.shape
-        # scale = min(self.h / h_orig, self.w / w_orig)
-        # new_w, new_h = int(w_orig * scale), int(h_orig * scale)
-        # img_res = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_AREA)
-
-        # # 3. Tworzenie białego tła (padding) i centrowanie
-        # # W MAE używamy 255 dla białego tła
-        # canvas = np.full((self.h, self.w), 255, dtype=np.uint8)
-        
-        # y_off = (self.h - new_h) // 2
-        # x_off = (self.w - new_w) // 2
-        # canvas[y_off:y_off+new_h, x_off:x_off+new_w] = img_res
-
-        # 4. Normalizacja do zakresu [0, 1] i zmiana na tensor
-        # Model MAE z models_mae.py oczekuje float32
-        img_tensor = torch.from_numpy(img).float() / 255.0
-        
-        # Dodanie wymiaru kanału (1, H, W)
-        return img_tensor.unsqueeze(0)
+        return self.data.size(0)
 
     def __getitem__(self, idx):
-        img = self.prepare_image(self.image_paths[idx])
-        # Jeśli obraz jest uszkodzony, zwracamy zerowy tensor (lub obsłuż to inaczej)
-        if img is None:
-            return torch.zeros((1, self.h, self.w))
-        return img
+        # Pobieramy surowy obraz uint8
+        img = self.data[idx] 
+        
+        # Zwracamy z wymiarem kanału (1, 32, 512)
+        # Nie robimy tu float() ani /255 - to zrobi GPU w pętli treningowej
+        return img.unsqueeze(0)

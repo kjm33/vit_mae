@@ -79,7 +79,7 @@ def train():
         decoder_depth=8,       #
         norm_pix_loss=True     # Krytyczne dla stabilności w OCR
     )
-    model = torch.compile(model, mode="reduce-overhead")
+    
 
     # 3. Przygotowanie danych
     lines_dir = "./data/yiddish_lines"
@@ -88,10 +88,10 @@ def train():
     dataloader = DataLoader(dataset,
         batch_size=256,
         shuffle=True,
-        num_workers=12, 
+        num_workers=6, 
         pin_memory=True,      # Przyspiesza transfer RAM -> GPU
         persistent_workers=True, # KLUCZOWE: nie zabija procesów między epokami
-        prefetch_factor=2     # Każdy worker przygotowuje 2 batche "na zapas")
+        prefetch_factor=4     # Każdy worker przygotowuje 2 batche "na zapas")
     )
 
     # 4. Optimizer
@@ -99,74 +99,27 @@ def train():
 
     # 5. Przygotowanie wszystkiego przez accelerator
     model, optimizer, dataloader = accelerator.prepare(model, optimizer, dataloader)
+    model = model.to(accelerator.device)
+    model = torch.compile(model, mode="reduce-overhead")
 
-    writer = None
-    monitor_img = None
-    if accelerator.is_main_process:
-        writer = SummaryWriter(log_dir=LOG_DIR)
-        writer.add_scalar("config/num_gpus", accelerator.num_processes, 0)
-        accelerator.print(f"Multi-GPU: {accelerator.num_processes} process(es). TensorBoard metrics: throughput (samples/s), step_time_ms, gpu/memory_*, epoch/time_sec.")
-        monitor_path = find_monitor_image(lines_dir)
-        monitor_img = load_monitor_image(monitor_path, IMG_SIZE, accelerator.device) if monitor_path else None
-        if monitor_img is None:
-            accelerator.print(f"Monitor image not found in {os.path.abspath(lines_dir)}")
-        else:
-            accelerator.print(f"TensorBoard: logging reconstruction every 10 epochs for {monitor_path}")
+
 
     model.train()
-    global_step = 0
-    num_processes = accelerator.num_processes
 
-    # with torch.profiler.profile(
-    #     activities=[
-    #         torch.profiler.ProfilerActivity.CPU,
-    #         torch.profiler.ProfilerActivity.CUDA,
-    #     ],
-    #     # wait: pomin pierwsze 2 kroki (rozgrzewka systemu)
-    #     # warmup: pomin 2 kolejne (rozgrzewka bibliotek CUDA)
-    #     # active: nagraj 3 kolejne kroki (to bedzie nasza probka)
-    #     schedule=torch.profiler.schedule(wait=2, warmup=2, active=3, repeat=1),
-    #     on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
-    #     record_shapes=True,
-    #     with_stack=True # Pozwala zobaczyc, ktora linia kodu w Pythonie wywolala operacje
-    # ) as prof:
-    if True:
 
-        for epoch in range(20):
-            
-            # if accelerator.is_main_process:
-            #     epoch_start = time.perf_counter()
+    for epoch in range(10):
 
-            for step, batch in enumerate(dataloader):
+        for step, batch in enumerate(dataloader):
+            batch = batch.to(accelerator.device, non_blocking=True)
+            batch = batch.to(torch.bfloat16).div_(255.0)
 
-                optimizer.zero_grad(set_to_none=True)
+            optimizer.zero_grad(set_to_none=True)
+            with torch.amp.autocast(device_type='cuda', dtype=torch.bfloat16):
                 loss, _, _ = model(batch, mask_ratio=0.75)
-                
-                accelerator.backward(loss)
-                optimizer.step()
-                # prof.step()
+            
+            accelerator.backward(loss)
+            optimizer.step()
 
-            #     if accelerator.is_main_process:
-            #         writer.add_scalar("train/loss", loss.item(), global_step)
-
-
-            #     if step % 10 == 0 and accelerator.is_main_process:
-            #         print(f"Epoch {epoch} | Step {step} | Loss: {loss.item():.4f}")
-
-            #     global_step += 1
-
-            # if accelerator.is_main_process:
-            #     epoch_time_sec = time.perf_counter() - epoch_start
-            #     writer.add_scalar("epoch/time_sec", epoch_time_sec, epoch)
-            #     accelerator.print(f"Epoch {epoch} finished in {epoch_time_sec:.2f}s")
-
-            # if accelerator.is_main_process and False:
-            #     accelerator.save_state("mae_checkpoint_yiddish")
-            #     if writer is not None and monitor_img is not None and (epoch % 10 == 0 or epoch == 0):
-            #         log_reconstruction(writer, model, monitor_img, epoch)
-
-    if accelerator.is_main_process and writer is not None:
-        writer.close()
 
 if __name__ == "__main__":
     train()
