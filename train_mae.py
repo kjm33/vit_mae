@@ -139,8 +139,9 @@ def train():
 
             for step, batch in enumerate(dataloader):
 
+                optimizer.zero_grad(set_to_none=True)
                 loss, _, _ = model(batch, mask_ratio=0.75)
-                optimizer.zero_grad()
+                
                 accelerator.backward(loss)
                 optimizer.step()
                 # prof.step()
