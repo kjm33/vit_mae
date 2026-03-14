@@ -53,19 +53,21 @@ class FlashAttention(nn.Module):
         self.q_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
         self.k_norm = norm_layer(self.head_dim) if qk_norm else nn.Identity()
 
-    def forward(self, x):
+def forward(self, x, attn_mask=None, **kwargs): # Dodano attn_mask i **kwargs
         B, N, C = x.shape
-        # qkv shape: [3, B, num_heads, N, head_dim]
+        # qkv shape: [B, N, 3, num_heads, self.head_dim]
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # Jeśli qk_norm jest używane (timm >= 0.9.x)
+        # Normalizacja Q i K (jeśli używasz qk_norm z poprzedniej poprawki)
         q = self.q_norm(q)
         k = self.k_norm(k)
 
-        # Flash Attention
+        # PyTorch F.scaled_dot_product_attention automatycznie obsłuży Flash Attention 2
+        # jeśli przekazana maska jest kompatybilna lub równa None.
         x = F.scaled_dot_product_attention(
             q, k, v,
+            attn_mask=attn_mask, # Przekazujemy maskę dalej
             dropout_p=self.attn_drop.p if self.training else 0.,
             is_causal=False
         )
